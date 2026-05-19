@@ -79,6 +79,38 @@ export default function Home() {
       icon: Users,
     },
   ];
+  const howItWorks = [
+    {
+      title: "Join or create a classroom",
+      description: "Teachers set up rooms, students join using invite codes."
+    },
+    {
+      title: "Ask doubts instantly",
+      description: "Post questions using text or image and get AI + peer help."
+    },
+    {
+      title: "Get clear answers & insights",
+      description: "AI explanations, teacher guidance, and analytics all in one place."
+    }
+  ];
+
+  const testimonials = [
+    {
+      name: "Aarav Sharma",
+      role: "B.Tech Student",
+      text: "DoubtDesk made it so easy to clear my doubts during exam prep. The AI explanations are super clear."
+    },
+    {
+      name: "Neha Verma",
+      role: "CS Student",
+      text: "No more messy WhatsApp groups. Everything is structured and easy to follow."
+    },
+    {
+      name: "Rohit Mehta",
+      role: "Teaching Assistant",
+      text: "Analytics help me understand where students struggle the most."
+    }
+  ];
 
   const handleSignOut = async () => {
     await signOut({ redirectUrl: '/' });
@@ -90,7 +122,7 @@ export default function Home() {
       <header className="fixed inset-x-0 top-0 z-50 bg-background/88 supports-[backdrop-filter]:bg-background/72 backdrop-blur-xl relative overflow-visible transition-colors duration-300">
         <div className="absolute inset-x-0 bottom-0 h-px bg-border shadow-[0_0_10px_rgba(139,184,255,0.18)]" />
         <div className="max-w-7xl mx-auto h-16 sm:h-20 flex items-center justify-between px-4 sm:px-6 md:px-[clamp(24px,5vw,64px)]">
-         <Link href="/" className="flex items-center gap-1 sm:gap-2 hover:opacity-90 transition-opacity shrink-0">
+          <Link href="/" className="flex items-center gap-1 sm:gap-2 hover:opacity-90 transition-opacity shrink-0">
             <div className="w-9 h-9 sm:w-10 sm:h-10 bg-[#5E8CFF] rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-[0_0_20px_rgba(94,140,255,0.25)] ring-1 ring-[#AABFFF]/35">
               D
             </div>
@@ -283,6 +315,79 @@ export default function Home() {
                 );
               })}
             </div>
+          </div>
+        </section>
+        {/* How It Works */}
+        <section id="how-it-works" className="px-6 py-20 relative z-10">
+          <div className="max-w-7xl mx-auto text-center">
+
+            <h3 className="text-3xl sm:text-4xl font-bold text-[#F2F5FF]">
+              How it works
+            </h3>
+
+            <p className="mt-4 text-slate-300/80">
+              Simple flow from doubt → solution → understanding
+            </p>
+
+            <div className="mt-12 grid md:grid-cols-3 gap-6">
+              {howItWorks.map((step, index) => (
+                <div
+                  key={step.title}
+                  className="p-6 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl hover:bg-white/[0.06] transition"
+                >
+                  <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[#5E8CFF] text-white flex items-center justify-center font-bold shadow-[0_0_18px_rgba(94,140,255,0.45)] ring-1 ring-[#8BB8FF]/40">
+                    {index + 1}
+                  </div>
+
+                  <h4 className="text-lg font-semibold text-[#F2F5FF]">
+                    {step.title}
+                  </h4>
+
+                  <p className="mt-2 text-sm text-slate-300/80">
+                    {step.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+          </div>
+        </section>
+        {/* Testimonials */}
+        <section className="px-6 py-20 relative z-10">
+          <div className="max-w-7xl mx-auto text-center">
+            <div className={`${staatliches.className} mb-4 text-sm tracking-[0.16em] text-[#AABFFF]/70 uppercase`}>
+              Testimonials
+            </div>
+            <h3 className="text-3xl sm:text-4xl font-bold text-[#F2F5FF]">
+              What students say
+            </h3>
+
+            <p className="mt-4 text-slate-300/80">
+              Real feedback from learners and educators
+            </p>
+
+            <div className="mt-12 grid md:grid-cols-3 gap-6 text-left">
+              {testimonials.map((t) => (
+                <div
+                  key={t.name}
+                  className="p-6 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl hover:bg-white/[0.06] transition"
+                >
+                  <p className="text-slate-300/80 text-sm leading-7">
+                    “{t.text}”
+                  </p>
+
+                  <div className="mt-5">
+                    <div className="text-[#F2F5FF] font-semibold">
+                      {t.name}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {t.role}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
           </div>
         </section>
       </main>
