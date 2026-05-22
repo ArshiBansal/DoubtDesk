@@ -31,7 +31,7 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { KeyboardShortcutsProvider } from "@/components/KeyboardShortcutsProvider";
 import { CommandMenu } from "@/components/CommandMenu";
 import { ThemeProvider, useTheme } from "next-themes";
-import { Spinner } from "../components/Spinner";
+import { FullScreenSpinner } from "../components/FullScreenSpinner";
 
 function ThemedToaster() {
     const { resolvedTheme } = useTheme();
@@ -133,7 +133,7 @@ export function Provider({ children }: { children: React.ReactNode }) {
                     <SessionTracker />
                     
                     {/* 🌀 This catches client-side clicks instantly! */}
-                    {isNavigating && <Spinner/>}
+                    {isNavigating && <FullScreenSpinner/>}
 
                     {children}
                     <CommandMenu />
