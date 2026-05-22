@@ -237,14 +237,13 @@ export default function DoubtRepliesModal({ doubt, isOpen, onClose, onReplyChang
     };
 
     const handleVote = async (replyId: number) => {
-        const storedUserName = localStorage.getItem("anonymous_user");
-        if (!storedUserName) return;
+        if (!localStorage.getItem("anonymous_user")) return;
 
         try {
             const res = await fetch("/api/replies/vote", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ replyId, userName: storedUserName })
+                body: JSON.stringify({ replyId })
             });
 
             if (res.ok) {

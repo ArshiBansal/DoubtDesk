@@ -7,14 +7,16 @@ import { currentUser } from "@clerk/nextjs/server";
 export async function POST(req: Request) {
     try {
         const user = await currentUser();
-        if (!user) {
+        const authenticatedUserName = user?.username || user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress;
+
+        if (!authenticatedUserName) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const { replyId, userName } = await req.json();
+        const { replyId } = await req.json();
 
-        if (!replyId || !userName) {
-            return NextResponse.json({ error: "Reply ID and User Name are required" }, { status: 400 });
+        if (!replyId) {
+            return NextResponse.json({ error: "Reply ID is required" }, { status: 400 });
         }
 
         // Check if reply exists
@@ -26,13 +28,13 @@ export async function POST(req: Request) {
         // Check if already upvoted
         const existingLike = await db.select()
             .from(replyLikesTable)
-            .where(and(eq(replyLikesTable.userName, userName), eq(replyLikesTable.replyId, replyId)))
+            .where(and(eq(replyLikesTable.userName, authenticatedUserName), eq(replyLikesTable.replyId, replyId)))
             .limit(1);
 
         if (existingLike.length > 0) {
             // Unvote
             await db.delete(replyLikesTable)
-                .where(and(eq(replyLikesTable.userName, userName), eq(replyLikesTable.replyId, replyId)));
+                .where(and(eq(replyLikesTable.userName, authenticatedUserName), eq(replyLikesTable.replyId, replyId)));
             
             const updated = await db.update(repliesTable)
                 .set({ upvotes: sql`${repliesTable.upvotes} - 1` })
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
         } else {
             // Vote
             await db.insert(replyLikesTable).values({
-                userName,
+                userName: authenticatedUserName,
                 replyId
             });
 

@@ -12,6 +12,7 @@ export async function GET(req: Request) {
         const user = await currentUser();
         if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         const email = user.primaryEmailAddress?.emailAddress;
+        const authenticatedUserName = user.username || user.fullName || user.firstName || email;
         if (!email) return NextResponse.json({ error: "Email required" }, { status: 400 });
 
         // 0. Check if user is blocked
@@ -26,7 +27,7 @@ export async function GET(req: Request) {
 
         const { searchParams } = new URL(req.url);
         const doubtIdStr = searchParams.get("doubtId");
-        const userName = searchParams.get("userName");
+        const userName = authenticatedUserName || searchParams.get("userName");
 
         if (!doubtIdStr) {
             return NextResponse.json({ error: "Doubt ID required" }, { status: 400 });
