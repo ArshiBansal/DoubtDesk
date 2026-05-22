@@ -17,11 +17,11 @@ export async function GET(req: Request) {
 
         const { searchParams } = new URL(req.url);
         const classroomIdStr = searchParams.get("classroomId");
-        const classroomId = classroomIdStr ? parseInt(classroomIdStr) : NaN;
-
-        if (!classroomIdStr || Number.isNaN(classroomId)) {
+        if (!classroomIdStr || !/^[1-9]\d*$/.test(classroomIdStr)) {
             return NextResponse.json({ error: "classroomId is required" }, { status: 400 });
         }
+
+        const classroomId = Number(classroomIdStr);
 
         const [classroom] = await db
             .select({ id: classroomsTable.id })

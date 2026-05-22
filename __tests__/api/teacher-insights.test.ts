@@ -54,6 +54,19 @@ describe('Teacher Insights API Endpoint', () => {
         expect(json.error).toBe('classroomId is required');
     });
 
+    it('returns 400 when classroomId is invalid', async () => {
+        currentUserMock.mockResolvedValue({
+            primaryEmailAddress: { emailAddress: 'teacher@example.com' },
+        });
+
+        const req = new NextRequest('http://localhost/api/teacher/insights?classroomId=7abc');
+        const res = await GET(req);
+        const json = await res.json();
+
+        expect(res.status).toBe(400);
+        expect(json.error).toBe('classroomId is required');
+    });
+
     it('returns 403 when the user is not the teacher of the classroom', async () => {
         currentUserMock.mockResolvedValue({
             primaryEmailAddress: { emailAddress: 'teacher@example.com' },
