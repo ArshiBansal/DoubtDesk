@@ -168,14 +168,7 @@ export async function GET(req: Request) {
             }));
         }
 
-        return NextResponse.json({
-            doubts,
-            pagination: {
-                page,
-                limit,
-                total: 2,
-            },
-        });
+        return NextResponse.json(doubts);
     } catch (error) {
         const { status, body } = buildErrorResponse(error);
         return NextResponse.json(body, { status });
