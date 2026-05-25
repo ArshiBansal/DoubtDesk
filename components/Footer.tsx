@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import {
   Github,
   Linkedin,
@@ -56,19 +57,19 @@ export default function Footer() {
     {
       icon: Linkedin,
       href: "https://www.linkedin.com/",
-      label: "LinkedIn",
+      label: "Visit DoubtDesk on LinkedIn",
       hoverColor: "hover:text-blue-500 dark:hover:text-blue-400",
     },
     {
       icon: Github,
       href: "https://github.com/knoxiboy/DoubtDesk",
-      label: "GitHub",
+      label: "Visit DoubtDesk on GitHub",
       hoverColor: "hover:text-slate-900 dark:hover:text-slate-300",
     },
     {
       icon: Mail,
       href: "mailto:karankmt.tripathi@gmail.com",
-      label: "Email",
+      label: "Send the DoubtDesk team an email",
       hoverColor: "hover:text-purple-500 dark:hover:text-purple-400",
     },
   ];
@@ -90,12 +91,15 @@ export default function Footer() {
         <div className="flex flex-col lg:flex-row lg:justify-between gap-14 pb-12 border-b border-slate-300 dark:border-white/10">
           {/* Brand Section */}
           <div className="max-w-md">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-3 mb-5 group"
-            >
-              <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center text-slate-900 dark:text-white font-bold text-xl shadow-[0_0_15px_rgba(37,99,235,0.2)] transition-all duration-300 group-hover:scale-110 group-hover:rotate-3">
-                D
+            <Link href="/" className="inline-flex items-center gap-3 mb-5 group">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(37,99,235,0.2)] transition-all duration-300 group-hover:scale-110 group-hover:rotate-3">
+                <Image
+                  src="/logo.png"
+                  alt="DoubtDesk logo"
+                  width={35}
+                  height={35}
+                  className="object-cover"
+                />
               </div>
 
               <span className="text-2xl font-bold text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 tracking-tight transition-colors duration-300">
@@ -109,7 +113,6 @@ export default function Footer() {
             </p>
           </div>
 
-          {/* Footer Links */}
           <div
             role="navigation"
             aria-label="Footer navigation links"
@@ -185,9 +188,7 @@ export default function Footer() {
           </div>
         </div>
 
-        {/* Bottom Section */}
         <div className="pt-8 flex flex-col md:flex-row items-center justify-between gap-6">
-          {/* Social Icons */}
           <div className="flex items-center gap-4">
             {socialLinks.map((social) => (
               <Link
@@ -203,16 +204,13 @@ export default function Footer() {
             ))}
           </div>
 
-          {/* Copyright */}
           <div className="text-center md:text-right">
             <p className="text-sm text-slate-600 dark:text-slate-500">
-              © {currentYear} DoubtDesk. Built for collaborative AI-powered
-              learning.
+              © {currentYear} DoubtDesk. Built for collaborative AI-powered learning.
             </p>
           </div>
         </div>
 
-        {/* Top Glow Line */}
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-500/40 dark:via-blue-500/30 to-transparent" />
       </div>
     </footer>

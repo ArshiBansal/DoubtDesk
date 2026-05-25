@@ -146,7 +146,7 @@ export async function POST(req: Request) {
                     .set({ isSolved: DOUBT_STATUS.IN_PROGRESS })
                     .where(
                         and(
-                            eq(doubtsTable.id, parseInt(doubtId)),
+                            eq(doubtsTable.id, doubtId),
                             eq(doubtsTable.isSolved, DOUBT_STATUS.UNSOLVED)
                         )
                     );
