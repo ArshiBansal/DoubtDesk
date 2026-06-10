@@ -118,20 +118,20 @@ export default function Home() {
       name: "Aarav Sharma",
       role: "B.Tech Student",
       rating: 5,
-      text: "DoubtDesk made it so easy to clear my doubts during exam prep. The AI explanations are super clear.",
+      text: "DoubtDesk made it so easy to clear my doubts during exam prep. The AI explanations are super clear.",,
     },
     {
       name: "Neha Verma",
       role: "CS Student",
       rating: 5,
-      text: "No more messy WhatsApp groups. Everything is structured and easy to follow.",
+      text: "No more messy WhatsApp groups. Everything is structured and easy to follow.",,
     },
     {
       name: "Rohit Mehta",
       role: "Teaching Assistant",
       rating: 4,
-      text: "Analytics help me understand where students struggle the most.",
-    },
+      text: "Analytics help me understand where students struggle the most.",,
+    },,
   ];
 
   const handleSignOut = async () => {

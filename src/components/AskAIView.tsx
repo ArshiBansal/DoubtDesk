@@ -11,7 +11,26 @@ import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
 import { Doubt } from '@/types';
+import {
+    AI_IMAGE_ALLOWED_MIME_TYPES,
+    AI_IMAGE_ALLOWED_TYPES_LABEL,
+    AI_IMAGE_MAX_BYTES,
+    AI_IMAGE_MAX_SIZE_LABEL,
+    isAllowedAiImageMimeType,
+} from '@/lib/ai-image-validation';
 import 'katex/dist/katex.min.css';
+
+const STRINGS = {
+    CLIPBOARD_ERROR: "Clipboard error:",
+    COPIED_SUCCESS: "Copied to clipboard!",
+    COPY_FAILED: "Failed to copy. Please try manually.",
+    TYPE_QUESTION: "Type Question",
+    UPLOAD_IMAGE: "Upload Image",
+    DOUBT_PLACEHOLDER: "Type your doubt here...",
+    IMAGE_TYPE_ERROR: (label: string) => `Please upload a ${label} image.`,
+    IMAGE_SIZE_ERROR: (label: string) => `Images must be ${label} or smaller.`,
+    IMAGE_READ_ERROR: "Could not read this image. Please try another file.",
+} as const;
 
 type SolveType = 'standard' | 'simple' | 'exam' | 'eli10';
 function useCopyToClipboard(timeout = 2000) {
@@ -21,10 +40,11 @@ function useCopyToClipboard(timeout = 2000) {
         try {
             await navigator.clipboard.writeText(text);
             setCopied(id);
-            toast.success("Copied to clipboard!");
+            toast.success(STRINGS.COPIED_SUCCESS);
             setTimeout(() => setCopied(null), timeout);
-        } catch {
-            toast.error("Failed to copy. Please try manually.");
+        } catch (err) {
+            console.error(STRINGS.CLIPBOARD_ERROR, err);
+            toast.error(STRINGS.COPY_FAILED);
         }
     };
 
@@ -148,10 +168,48 @@ const { copied, copy } = useCopyToClipboard();
     };
 
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
+        const input = e.currentTarget;
+        const file = input.files?.[0];
         if (!file) return;
+
+        setErrorMsg(null);
+        setErrorCode(null);
+
+        if (!isAllowedAiImageMimeType(file.type)) {
+            const message = STRINGS.IMAGE_TYPE_ERROR(AI_IMAGE_ALLOWED_TYPES_LABEL);
+            setErrorMsg(message);
+            toast.error(message);
+            input.value = '';
+            return;
+        }
+
+        if (file.size > AI_IMAGE_MAX_BYTES) {
+            const message = STRINGS.IMAGE_SIZE_ERROR(AI_IMAGE_MAX_SIZE_LABEL);
+            setErrorMsg(message);
+            setErrorCode('IMAGE_TOO_LARGE');
+            toast.error(message);
+            input.value = '';
+            return;
+        }
+
         const reader = new FileReader();
-        reader.onloadend = () => setImageBase64(reader.result as string);
+        reader.onerror = () => {
+            const message = STRINGS.IMAGE_READ_ERROR;
+            setErrorMsg(message);
+            toast.error(message);
+            input.value = '';
+        };
+        reader.onloadend = () => {
+            if (typeof reader.result === 'string') {
+                setImageBase64(reader.result);
+                return;
+            }
+
+            const message = STRINGS.IMAGE_READ_ERROR;
+            setErrorMsg(message);
+            toast.error(message);
+            input.value = '';
+        };
         reader.readAsDataURL(file);
     };
 
@@ -194,13 +252,13 @@ const { copied, copy } = useCopyToClipboard();
                         onClick={() => { setInputMode('text'); setImageBase64(null); }}
                         className={`flex-1 flex items-center justify-center gap-2 py-4 text-xs font-black uppercase tracking-widest transition-all ${inputMode === 'text' ? 'text-blue-400 border-b-2 border-blue-500 bg-blue-500/5' : 'text-slate-500 hover:text-slate-300'}`}
                     >
-                        <Type className="w-4 h-4" /> Type Question
+                        <Type className="w-4 h-4" /> {STRINGS.TYPE_QUESTION}
                     </button>
                     <button
                         onClick={() => { setInputMode('image'); setPrompt(''); }}
                         className={`flex-1 flex items-center justify-center gap-2 py-4 text-xs font-black uppercase tracking-widest transition-all ${inputMode === 'image' ? 'text-purple-400 border-b-2 border-purple-500 bg-purple-500/5' : 'text-slate-500 hover:text-slate-300'}`}
                     >
-                        <Camera className="w-4 h-4" /> Upload Image
+                        <Camera className="w-4 h-4" /> {STRINGS.UPLOAD_IMAGE}
                     </button>
                 </div>
 
@@ -210,7 +268,7 @@ const { copied, copy } = useCopyToClipboard();
                             <textarea
                                 value={prompt}
                                 onChange={(e) => setPrompt(e.target.value)}
-                                placeholder="Type your doubt here..."
+                                placeholder={STRINGS.DOUBT_PLACEHOLDER}
                                 rows={4}
                                 className="w-full bg-white/60 dark:bg-slate-950/60 border border-slate-200 dark:border-white/8 rounded-2xl px-5 py-4 text-slate-900 dark:text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all resize-none font-medium text-sm leading-relaxed"
                                 disabled={isLoading}
@@ -218,7 +276,7 @@ const { copied, copy } = useCopyToClipboard();
                         </>
                     ) : (
                         <>
-                            <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageUpload} />
+                            <input type="file" accept={AI_IMAGE_ALLOWED_MIME_TYPES.join(',')} className="hidden" ref={fileInputRef} onChange={handleImageUpload} />
                             {!imageBase64 ? (
                                 <button
                                     onClick={() => fileInputRef.current?.click()}
@@ -229,13 +287,14 @@ const { copied, copy } = useCopyToClipboard();
                                     </div>
                                     <div className="text-center">
                                         <p className="text-slate-900 dark:text-white font-bold text-xs uppercase tracking-widest">Select Image</p>
+                                        <p className="text-slate-500 dark:text-slate-500 text-[10px] mt-1">{AI_IMAGE_ALLOWED_TYPES_LABEL} · Max {AI_IMAGE_MAX_SIZE_LABEL}</p>
                                     </div>
                                 </button>
                             ) : (
                                 <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-950">
                                     <img src={imageBase64} alt="Uploaded" className="w-full max-h-64 object-contain" />
                                     <button
-                                        onClick={() => setImageBase64(null)}
+                                        onClick={() => { setImageBase64(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
                                         className="absolute top-3 right-3 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center shadow-lg"
                                         aria-label="Remove image"
                                     >

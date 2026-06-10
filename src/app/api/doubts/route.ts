@@ -1,15 +1,28 @@
-import { db } from "@/configs/db";
-import { bookmarksTable, doubtTagsTable, doubtsTable, likesTable, repliesTable, membershipsTable, classroomsTable, tagsTable } from "@/configs/schema";
-import { categorizeDoubt } from "@/lib/ai/categorizer";
-import { and, eq, inArray, isNull, or, not, sql, SQL, ilike, desc, getTableColumns } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
+import { db } from "@/configs/db";
+import {
+  bookmarksTable,
+  doubtTagsTable,
+  doubtsTable,
+  likesTable,
+  repliesTable,
+  tagsTable,
+  membershipsTable,
+} from "@/configs/schema";
+import { categorizeDoubt } from "@/lib/ai/categorizer";
+import { and, eq, inArray, isNull, or, not, sql, SQL, desc, getTableColumns } from "drizzle-orm";
 import { moderateContent, handleModerationViolation } from "@/lib/moderation";
-import { buildErrorResponse } from "@/lib/error-handler";
+import { buildErrorResponse, errorResponse } from "@/lib/error-handler";
 import { checkUserBlock } from "@/lib/auth-utils";
 import { parseAndValidateRequest } from "@/lib/validations/validate";
 import { createDoubtSchema } from "@/lib/validations/doubt";
 import { createClassroomDoubtNotifications } from "@/lib/notifications/service";
+import { inngest } from "@/inngest/client";
+import { buildSearchCondition, buildRankOrder } from "@/lib/search"; // NEW
+import { canTeach } from "@/lib/auth/membership-guard";
+import { currentUser } from "@clerk/nextjs/server";
+import { parsePositiveInt } from "@/lib/utils";
+
 
 export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
@@ -17,80 +30,90 @@ export async function GET(req: Request) {
     const search = searchParams.get("search");
     const userName = searchParams.get("userName");
     const classroomIdStr = searchParams.get("classroomId");
-    const classroomId = classroomIdStr ? parseInt(classroomIdStr) : null;
-    const type = searchParams.get("type") || 'community';
+    const type = searchParams.get("type") || "community";
     const tag = searchParams.get("tag");
     const sort = searchParams.get("sort") || "newest";
     const bookmarked = searchParams.get("bookmarked") === "true";
 
     try {
         const user = await currentUser();
-        if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const email = user.primaryEmailAddress?.emailAddress;
+        const email = user?.primaryEmailAddress?.emailAddress ?? null;
+        const classroomId = classroomIdStr ? parseInt(classroomIdStr) : null;
 
-        if (classroomId && email) {
-            const [membership] = await db.select().from(membershipsTable).where(
-                and(eq(membershipsTable.userEmail, email), eq(membershipsTable.classroomId, classroomId))
-            );
-            if (!membership) {
-                return NextResponse.json({ error: "Access denied to this classroom" }, { status: 403 });
+        if (classroomId) {
+            if (!email) {
+                return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
             }
-        } else if (classroomId && !email) {
-            // For hackathon simplicity, we might allow it if they have the link, 
-            // but usually this should be blocked.
         }
 
-        let conditions: SQL<unknown>[] = [];
+        if ((type === "ai" || bookmarked) && !email) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
 
-        // Base Classroom scoping
+        const conditions: SQL[] = [isNull(doubtsTable.deletedAt)];
+
         if (classroomId) {
             conditions.push(eq(doubtsTable.classroomId, classroomId));
         } else {
             conditions.push(isNull(doubtsTable.classroomId));
         }
 
-        // Fetch classroom role info
-        const [room] = classroomId
-            ? await db.select().from(classroomsTable).where(eq(classroomsTable.id, classroomId))
-            : [null];
-        const isTeacher = room && email && room.teacherEmail === email;
+        let isTeacher = false;
 
-        // GLOBAL VISIBILITY FILTER
-        // If not the teacher, you can only see 'teacher' doubts if you are the owner
-        if (!isTeacher && email) {
-            conditions.push(or(not(eq(doubtsTable.type, 'teacher')), eq(doubtsTable.userEmail, email!))!);
-        } else if (!isTeacher && !email) {
-            // Extreme fallback: if no email, only show non-teacher doubts
-            conditions.push(not(eq(doubtsTable.type, 'teacher')));
+        if (classroomId && email) {
+            const [membership] = await db
+                .select()
+                .from(membershipsTable)
+                .where(
+                    and(
+                        eq(membershipsTable.userEmail, email),
+                        eq(membershipsTable.classroomId, classroomId)
+                    )
+                );
+
+            if (!membership) {
+                return NextResponse.json(
+                    { error: "Access denied" },
+                    { status: 403 }
+                );
+            }
+
+            isTeacher = canTeach(membership.role);
+            }
+
+        if (!isTeacher) {
+            const teacherCondition = email
+                ? or(not(eq(doubtsTable.type, "teacher")), eq(doubtsTable.userEmail, email))
+                : not(eq(doubtsTable.type, "teacher"));
+            if (teacherCondition) conditions.push(teacherCondition);
         }
 
         if (subject && subject !== "All") {
             conditions.push(eq(doubtsTable.subject, subject));
         }
 
+        // NEW: Replace ilike sequential scan with indexed full-text search
+        // Falls back gracefully — if search is empty, no condition is added
         if (search) {
-            conditions.push(
-                or(
-                    ilike(doubtsTable.content, `%${search}%`),
-                    ilike(doubtsTable.subject, `%${search}%`),
-                    ilike(doubtsTable.userName, `%${search}%`)
-                )!
-            );
+            const searchCondition = buildSearchCondition(search);
+            if (searchCondition) {
+                conditions.push(searchCondition);
+            }
         }
 
         if (type && type !== "All") {
             conditions.push(eq(doubtsTable.type, type));
-            // Security/Privacy: AI history is personal
-            if (type === 'ai' && email) {
+            if (type === "ai" && email) {
                 conditions.push(eq(doubtsTable.userEmail, email));
             }
         }
 
         if (bookmarked && email) {
-            const userBookmarks = await db.select({ doubtId: bookmarksTable.doubtId })
+            const userBookmarks = await db
+                .select({ doubtId: bookmarksTable.doubtId })
                 .from(bookmarksTable)
                 .where(eq(bookmarksTable.userEmail, email));
-            const bookmarkedIds = userBookmarks.map(b => b.doubtId);
+            const bookmarkedIds = userBookmarks.map((b) => b.doubtId);
             if (bookmarkedIds.length > 0) {
                 conditions.push(inArray(doubtsTable.id, bookmarkedIds));
             } else {
@@ -101,16 +124,20 @@ export async function GET(req: Request) {
         const pageStr = searchParams.get("page");
         const offsetStr = searchParams.get("offset");
         const limitStr = searchParams.get("limit");
-        const page = pageStr ? parseInt(pageStr) : 1;
-        const limit = limitStr ? parseInt(limitStr) : 20;
-        const offset = offsetStr ? parseInt(offsetStr) : (page - 1) * limit;
+
+        const limit = parsePositiveInt(limitStr, 20);
+        const offset = offsetStr
+            ? parsePositiveInt(offsetStr, 0)
+            : (pageStr ? (parsePositiveInt(pageStr, 1) - 1) * limit : 0);
+        const page = Math.floor(offset / limit) + 1;
 
         if (tag && tag !== "All") {
             const normalizedTag = tag.trim().replace(/\s+/g, " ").toLowerCase();
             conditions.push(
                 inArray(
                     doubtsTable.id,
-                    db.select({ doubtId: doubtTagsTable.doubtId })
+                    db
+                        .select({ doubtId: doubtTagsTable.doubtId })
                         .from(doubtTagsTable)
                         .innerJoin(tagsTable, eq(doubtTagsTable.tagId, tagsTable.id))
                         .where(eq(tagsTable.normalizedName, normalizedTag))
@@ -122,22 +149,34 @@ export async function GET(req: Request) {
             conditions.push(eq(doubtsTable.isSolved, "unsolved"));
         }
 
-        const replyCountSql = sql<number>`(SELECT count(*) FROM ${repliesTable} WHERE ${repliesTable.doubtId} = ${doubtsTable.id})`.mapWith(Number);
+        const replyCountSql = sql<number>`coalesce((SELECT count(*)::int FROM ${repliesTable} WHERE ${repliesTable.doubtId} = ${doubtsTable.id}), 0)`.mapWith(Number);
 
-        let query = db.select({
-            ...getTableColumns(doubtsTable),
-            replyCount: replyCountSql
-        }).from(doubtsTable);
+        const [totalCountRow] = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(doubtsTable)
+            .where(and(...conditions));
+        const totalCount = totalCountRow?.count ?? 0;
 
-        let orderByFields = [];
-        orderByFields.push(desc(doubtsTable.isPinned));
+        const query = db
+            .select({
+                ...getTableColumns(doubtsTable),
+                replyCount: replyCountSql
+            })
+            .from(doubtsTable);
+
+        const orderByFields: SQL[] = [desc(doubtsTable.isPinned)];
+
+        // NEW: When searching, rank by relevance first, then fall through to sort
+        if (search) {
+            const rankOrder = buildRankOrder(search);
+            if (rankOrder) orderByFields.push(rankOrder);
+        }
 
         if (sort === "popular") {
             orderByFields.push(desc(doubtsTable.likes));
         } else if (sort === "most-replied") {
             orderByFields.push(desc(replyCountSql));
         }
-        
         orderByFields.push(desc(doubtsTable.createdAt));
 
         let doubts = await query
@@ -147,41 +186,42 @@ export async function GET(req: Request) {
             .offset(offset);
 
         if (userName && doubts.length > 0) {
-            const userLikes = await db.select({ doubtId: likesTable.doubtId })
+            const userLikes = await db
+                .select({ doubtId: likesTable.doubtId })
                 .from(likesTable)
                 .where(eq(likesTable.userName, userName));
 
-            const likedIds = new Set(userLikes.map(l => l.doubtId));
-
-            doubts = doubts.map(doubt => ({
+            const likedIds = new Set(userLikes.map((l) => l.doubtId));
+            doubts = doubts.map((doubt) => ({
                 ...doubt,
                 hasLiked: likedIds.has(doubt.id)
             }));
         }
 
-        if (email && doubts.length > 0) {
-            const userBookmarks = await db.select({ doubtId: bookmarksTable.doubtId })
+        if (doubts.length > 0 && email) {
+            const userBookmarks = await db
+                .select({ doubtId: bookmarksTable.doubtId })
                 .from(bookmarksTable)
                 .where(eq(bookmarksTable.userEmail, email));
 
-            const bookmarkedIds = new Set(userBookmarks.map(b => b.doubtId));
-
-            doubts = doubts.map(doubt => ({
+            const bookmarkedIds = new Set(userBookmarks.map((b) => b.doubtId));
+            doubts = doubts.map((doubt) => ({
                 ...doubt,
                 hasBookmarked: bookmarkedIds.has(doubt.id)
             }));
         }
 
         if (doubts.length > 0) {
-            const tagRows = await db.select({
-                doubtId: doubtTagsTable.doubtId,
-                id: tagsTable.id,
-                name: tagsTable.name,
-                normalizedName: tagsTable.normalizedName,
-            })
-            .from(doubtTagsTable)
-            .innerJoin(tagsTable, eq(doubtTagsTable.tagId, tagsTable.id))
-            .where(inArray(doubtTagsTable.doubtId, doubts.map((doubt) => doubt.id)));
+            const tagRows = await db
+                .select({
+                    doubtId: doubtTagsTable.doubtId,
+                    id: tagsTable.id,
+                    name: tagsTable.name,
+                    normalizedName: tagsTable.normalizedName
+                })
+                .from(doubtTagsTable)
+                .innerJoin(tagsTable, eq(doubtTagsTable.tagId, tagsTable.id))
+                .where(inArray(doubtTagsTable.doubtId, doubts.map((d) => d.id)));
 
             const tagsByDoubt = tagRows.reduce<Record<number, { id: number; name: string; normalizedName: string }[]>>((acc, row) => {
                 acc[row.doubtId] = acc[row.doubtId] || [];
@@ -191,11 +231,19 @@ export async function GET(req: Request) {
 
             doubts = doubts.map((doubt) => ({
                 ...doubt,
-                tags: tagsByDoubt[doubt.id] || [],
+                tags: tagsByDoubt[doubt.id] || []
             }));
         }
 
-        return NextResponse.json(doubts);
+        const hasMore = offset + doubts.length < totalCount;
+
+        return NextResponse.json({
+            doubts,
+            hasMore,
+            totalCount,
+            page,
+            limit
+        });
     } catch (error) {
         const { status, body } = buildErrorResponse(error);
         return NextResponse.json(body, { status });
@@ -204,94 +252,146 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
     try {
-        const { errorResponse, data } = await parseAndValidateRequest(req, createDoubtSchema);
-        if (errorResponse) return errorResponse;
+        const { errorResponse: validationResponse, data } = await parseAndValidateRequest(req, createDoubtSchema);
+        if (validationResponse) return validationResponse;
         
         const { userName, subject, content, imageUrl, classroomId, type, tags } = data;
-const doubtType = type ?? 'community';
-        const parsedClassroomId = classroomId ? parseInt(classroomId.toString()) : null;
-
+        const doubtType = type ?? "community";
+        const parsedClassroomId = classroomId;
         const user = await currentUser();
-        if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const email = user?.primaryEmailAddress?.emailAddress;
 
-        const email = user.primaryEmailAddress?.emailAddress;
-        if (!email) return NextResponse.json({ error: "Email required" }, { status: 400 });
+        if (!email) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
 
         const { isBlocked, errorResponse: blockResponse } = await checkUserBlock(email);
         if (isBlocked) return blockResponse;
 
-        // Security: Check classroom membership before allowing post
         if (parsedClassroomId) {
-            const [membership] = await db.select().from(membershipsTable).where(
-                and(eq(membershipsTable.userEmail, email), eq(membershipsTable.classroomId, parsedClassroomId))
+            const [membership] = await db
+            .select()
+            .from(membershipsTable)
+            .where(
+                and(
+                    eq(membershipsTable.userEmail, email),
+                    eq(membershipsTable.classroomId, parsedClassroomId)
+                )
             );
+
             if (!membership) {
-                return NextResponse.json({ error: "Access denied: You are not a member of this classroom" }, { status: 403 });
+                return NextResponse.json(
+                    { error: "Access denied" },
+                    { status: 403 }
+                );
             }
-        }
-        // 1. AI Moderation Check
+        }                                
+
         if (content) {
             const moderation = await moderateContent(content);
             const violationError = await handleModerationViolation(email, content, moderation);
             if (violationError) {
-                return NextResponse.json({ error: violationError }, { status: 400 });
+                return errorResponse(violationError, 400);
             }
         }
 
-        // 2. Auto-detect sub-topic using AI
         const subTopic = await categorizeDoubt(content || "", subject, imageUrl);
 
-        const [newDoubt] = await db.insert(doubtsTable).values({
-            userName,
-            userEmail: email,
-            subject,
-            subTopic,
-            content,
-            imageUrl,
-            classroomId: parsedClassroomId,
-            type,
-        }).returning();
+        let parsedCreatedAt: Date | undefined = undefined;
+        if (data.createdAt) {
+            const d = new Date(data.createdAt);
+            if (isNaN(d.getTime())) {
+                return NextResponse.json({ error: "Invalid createdAt date format" }, { status: 400 });
+            }
+            const now = new Date();
+            const age = now.getTime() - d.getTime();
+            const maxOfflineDuration = 30 * 24 * 60 * 60 * 1000; // 30 days
+            if (age >= -300000 && age <= maxOfflineDuration) {
+                parsedCreatedAt = d;
+            }
+        }
+
+        const [newDoubt] = await db
+            .insert(doubtsTable)
+            .values({
+                userName,
+                userEmail: email,
+                subject,
+                subTopic,
+                content,
+                imageUrl,
+                classroomId: parsedClassroomId,
+                type: doubtType,
+                createdAt: parsedCreatedAt
+            })
+            .returning();
 
         if (parsedClassroomId) {
+            inngest.send({
+                name: "doubt/created",
+                data: { classroomId: parsedClassroomId, doubtId: newDoubt.id }
+            }).catch((err) => console.error("Inngest background worker exception:", err));
+
             createClassroomDoubtNotifications({
                 classroomId: parsedClassroomId,
                 doubtId: newDoubt.id,
                 subject,
                 authorEmail: email,
                 authorName: userName,
-                doubtType: doubtType,
-            }).catch((notificationErr) => {
-                console.error("Failed to create classroom doubt notifications:", notificationErr);
-            });
+                doubtType: doubtType
+            }).catch((err) => console.error("Notification trigger async failure:", err));
         }
 
-        const normalizedTags: string[] = Array.from(new Set(
-            (Array.isArray(tags) ? tags : [])
-                .map((tag: string) => tag.trim().replace(/\s+/g, " ").toLowerCase())
-                .filter(Boolean)
-        )).slice(0, 8);
+        const normalizedTags: string[] = Array.from(
+            new Set(
+                (Array.isArray(tags) ? tags : [])
+                    .map((t: unknown) => typeof t === "string" ? t.trim().replace(/\s+/g, " ").toLowerCase() : "")
+                    .filter(Boolean)
+            )
+        ).slice(0, 8);
 
         const savedTags: (typeof tagsTable.$inferSelect)[] = [];
-        for (const normalizedName of normalizedTags) {
-            const [existingTag] = await db.select().from(tagsTable).where(and(
-                eq(tagsTable.normalizedName, normalizedName),
-                parsedClassroomId ? eq(tagsTable.classroomId, parsedClassroomId) : isNull(tagsTable.classroomId)
-            )).limit(1);
 
-            const [tagRecord] = existingTag
-                ? [existingTag]
-                : await db.insert(tagsTable).values({
-                    name: normalizedName.replace(/\b\w/g, (char) => char.toUpperCase()),
-                    normalizedName,
-                    classroomId: parsedClassroomId,
-                    createdByEmail: email,
-                }).returning();
+        if (normalizedTags.length > 0) {
+            const existingClassroomTags = await db
+                .select()
+                .from(tagsTable)
+                .where(
+                    and(
+                        inArray(tagsTable.normalizedName, normalizedTags),
+                        parsedClassroomId ? eq(tagsTable.classroomId, parsedClassroomId) : isNull(tagsTable.classroomId)
+                    )
+                );
 
-            savedTags.push(tagRecord);
-            await db.insert(doubtTagsTable).values({
-                doubtId: newDoubt.id,
-                tagId: tagRecord.id,
-            }).onConflictDoNothing();
+            const existingTagsMap = new Map(existingClassroomTags.map((t) => [t.normalizedName, t]));
+            const tagsToInsert: (typeof tagsTable.$inferInsert)[] = [];
+
+            for (const name of normalizedTags) {
+                const match = existingTagsMap.get(name);
+                if (match) {
+                    savedTags.push(match);
+                } else {
+                    tagsToInsert.push({
+                        name: name.replace(/\b\w/g, (char) => char.toUpperCase()),
+                        normalizedName: name,
+                        classroomId: parsedClassroomId,
+                        createdByEmail: email
+                    });
+                }
+            }
+
+            if (tagsToInsert.length > 0) {
+                const insertedRows = await db.insert(tagsTable).values(tagsToInsert).returning();
+                savedTags.push(...insertedRows);
+            }
+
+            if (savedTags.length > 0) {
+                const doubtTagRelations = savedTags.map((t: typeof tagsTable.$inferSelect) => ({
+                    doubtId: newDoubt.id,
+                    tagId: t.id
+                }));
+                await db.insert(doubtTagsTable).values(doubtTagRelations).onConflictDoNothing();
+            }
         }
 
         return NextResponse.json({ ...newDoubt, tags: savedTags });
