@@ -34,7 +34,6 @@ import ShapeGrid from "@/components/ShapeGrid";
 import { Inter, Staatliches } from "next/font/google";
 import LiveCampusThreadPanel from "@/components/LiveCampusThreadPanel";
 import { scrollToSection } from "@/lib/scroll-to-section";
-import ScrollToTopButton from "@/components/ScrollToTopButton";
 
 import TestimonialsMarquee from "@/components/TestimonialsMarquee"; //Testimonials marquee
 import TestimonialsMarquee from "@/components/TestimonialsMarquee";
@@ -445,8 +444,6 @@ export default function Home() {
           </div>
         </section>
       </main>
-
-      <ScrollToTopButton />
     </div>
   );
 }
